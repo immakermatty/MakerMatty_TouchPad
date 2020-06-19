@@ -67,7 +67,10 @@ bool TouchPad::begin(BaseType_t xCoreID, SemaphoreHandle_t* pHwSemaphore)
 
         if (taskData.dataSemaphore == nullptr) {
             taskData.dataSemaphore = xSemaphoreCreateMutex();
-            assert(taskData.dataSemaphore);
+            if (!taskData.dataSemaphore) {
+                assert(taskData.dataSemaphore);
+                return false;
+            }
         }
 
         if (pHwSemaphore) {
@@ -83,8 +86,9 @@ bool TouchPad::begin(BaseType_t xCoreID, SemaphoreHandle_t* pHwSemaphore)
             taskData.pHardwareSemaphore = nullptr;
         }
 
-        BaseType_t result = xTaskCreateUniversal(touchpadTask, "touchpad", 4096, &taskData, 1, &taskHandle, xCoreID);
-        assert(result == pdPASS);
+        return xTaskCreateUniversal(touchpadTask, "touchpad", 4096, &taskData, 1, &taskHandle, xCoreID);
+    } else {
+        return true;
     }
 }
 
@@ -94,7 +98,7 @@ void TouchPad::touchpadTask_update(void* p)
 
     for (uint8_t i = 0; i < data->self->touchPinsAttached; i++) {
 
-        if (!data->pHardwareSemaphore || xSemaphoreTake(*(data->pHardwareSemaphore), 1)) {
+        if (!data->pHardwareSemaphore || xSemaphoreTake(*(data->pHardwareSemaphore), 2)) {
 #if MM_TOUCHPAD_DEBUG
             uint8_t reading = data->self->touchPins[i]->update();
             //uint8_t pin = data->self->touchPins[i]->getPin();
