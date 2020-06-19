@@ -4,7 +4,8 @@
 
 TouchPad::TouchPad(uint8_t max_count)
     : touchPins(new TouchPin*[max_count])
-    , taskData { .taskHandle = nullptr, .semaphore = nullptr, .touchpad = this }
+    , taskData { .self = this, .dataSemaphore = nullptr, .pHardwareSemaphore = nullptr }
+    , taskHandle(nullptr)
     , touchPinsAttached(0)
     , touchPinsMax(max_count)
     , m_contactCb(nullptr)
@@ -18,66 +19,118 @@ TouchPad::TouchPad(uint8_t max_count)
 {
 }
 
-void TouchPad::attach(touch_pad_t pin,  uint16_t tap_ms = 50, uint16_t press_ms = 750)
+void TouchPad::attach(touch_pad_t pin, uint16_t tap_ms = 50, uint16_t press_ms = 750)
 {
-    bool give = false;
-    if (taskData.semaphore != nullptr) {
-        if (xSemaphoreTake(taskData.semaphore, portMAX_DELAY) == pdTRUE) {
-            give = true;
-        } else {
-            abort();
-        }
-    }
+    if (!taskData.dataSemaphore || xSemaphoreTake(taskData.dataSemaphore, portMAX_DELAY)) {
 
-    for (uint8_t i = 0; i < touchPinsAttached; i++) {
-        if (touchPins[i]->getPin() == pin) {
-            detach(pin);
-            break;
+        for (uint8_t i = 0; i < touchPinsAttached; i++) {
+            if (touchPins[i]->getPin() == pin) {
+                detach(pin);
+                break;
+            }
         }
-    }
-    touchPins[touchPinsAttached++] = new TouchPin(pin, tap_ms, press_ms);
+        touchPins[touchPinsAttached++] = new TouchPin(pin, tap_ms, press_ms);
 
-    if (give) {
-        xSemaphoreGive(taskData.semaphore);
+        if (taskData.dataSemaphore) {
+            xSemaphoreGive(taskData.dataSemaphore);
+        }
     }
 }
 
 void TouchPad::detach(touch_pad_t pin)
 {
-    bool give = false;
-    if (taskData.semaphore != nullptr) {
-        if (xSemaphoreTake(taskData.semaphore, portMAX_DELAY) == pdTRUE) {
-            give = true;
-        } else {
-            abort();
-        }
-    }
+    if (!taskData.dataSemaphore || xSemaphoreTake(taskData.dataSemaphore, portMAX_DELAY)) {
 
-    for (uint8_t i = 0; i < touchPinsAttached; i++) {
-        if (touchPins[i]->getPin() == pin) {
-            delete touchPins[i];
-            touchPins[i] = touchPins[touchPinsAttached - 1];
-            touchPinsAttached--;
-            break;
+        for (uint8_t i = 0; i < touchPinsAttached; i++) {
+            if (touchPins[i]->getPin() == pin) {
+                delete touchPins[i];
+                touchPins[i] = touchPins[touchPinsAttached - 1];
+                touchPinsAttached--;
+                break;
+            }
         }
-    }
 
-    if (give) {
-        xSemaphoreGive(taskData.semaphore);
+        if (taskData.dataSemaphore) {
+            xSemaphoreGive(taskData.dataSemaphore);
+        }
     }
 }
 
-void TouchPad::begin(BaseType_t xCoreID)
+bool TouchPad::begin(BaseType_t xCoreID, SemaphoreHandle_t* pHwSemaphore)
 {
-    if (taskData.taskHandle == nullptr) {
-        if (taskData.semaphore == nullptr) {
-            taskData.semaphore = xSemaphoreCreateMutex();
-            assert(taskData.semaphore);
+    if (taskHandle == nullptr) {
+
+        if (taskData.dataSemaphore) {
+            vSemaphoreDelete(taskData.dataSemaphore);
+            taskData.dataSemaphore = nullptr;
         }
 
-        BaseType_t result = xTaskCreateUniversal(touchpadTask, "touchpad", 4096, &taskData, 1, &taskData.taskHandle, xCoreID);
+        if (taskData.dataSemaphore == nullptr) {
+            taskData.dataSemaphore = xSemaphoreCreateMutex();
+            assert(taskData.dataSemaphore);
+        }
+
+        if (pHwSemaphore) {
+            if (*pHwSemaphore == nullptr) {
+                *pHwSemaphore = xSemaphoreCreateMutex();
+                if (!*pHwSemaphore) {
+                    assert(*pHwSemaphore);
+                    return false;
+                }
+            }
+            taskData.pHardwareSemaphore = pHwSemaphore;
+        } else {
+            taskData.pHardwareSemaphore = nullptr;
+        }
+
+        BaseType_t result = xTaskCreateUniversal(touchpadTask, "touchpad", 4096, &taskData, 1, &taskHandle, xCoreID);
         assert(result == pdPASS);
     }
+}
+
+void TouchPad::touchpadTask_update(void* p)
+{
+    TaskData* data = (TaskData*)p;
+
+    for (uint8_t i = 0; i < data->self->touchPinsAttached; i++) {
+
+        if (!data->pHardwareSemaphore || xSemaphoreTake(*(data->pHardwareSemaphore), 1)) {
+#if MM_TOUCHPAD_DEBUG
+            uint8_t reading = data->self->touchPins[i]->update();
+            //uint8_t pin = data->self->touchPins[i]->getPin();
+            Serial.printf("%u, ", reading);
+#else
+            data->self->touchPins[i]->update();
+#endif
+            if (data->pHardwareSemaphore) {
+                xSemaphoreGive(*(data->pHardwareSemaphore));
+            }
+        }
+
+        if (data->self->touchPins[i]->contacted()) {
+            if (data->self->m_contactCb != nullptr) {
+                (*data->self->m_contactCb)(data->self->touchPins[i]->getPin(), data->self->m_contactArg);
+            }
+        }
+        if (data->self->touchPins[i]->released()) {
+            if (data->self->m_releaseCb != nullptr) {
+                (*data->self->m_releaseCb)(data->self->touchPins[i]->getPin(), data->self->m_releaseArg);
+            }
+        }
+        if (data->self->touchPins[i]->tapped()) {
+            if (data->self->m_tapCb != nullptr) {
+                (*data->self->m_tapCb)(data->self->touchPins[i]->getPin(), data->self->m_tapArg);
+            }
+        }
+        if (data->self->touchPins[i]->pressed()) {
+            if (data->self->m_pressCb != nullptr) {
+                (*data->self->m_pressCb)(data->self->touchPins[i]->getPin(), data->self->m_pressArg);
+            }
+        }
+    }
+#if MM_TOUCHPAD_DEBUG
+    Serial.printf("\n");
+#endif
 }
 
 void TouchPad::touchpadTask(void* p)
@@ -86,44 +139,9 @@ void TouchPad::touchpadTask(void* p)
 
     while (1) {
 
-        if (xSemaphoreTake(data->semaphore, 0) == pdTRUE) {
-
-            for (uint8_t i = 0; i < data->touchpad->touchPinsAttached; i++) {
-
-#if MM_TOUCHPAD_DEBUG
-                uint8_t reading = data->touchpad->touchPins[i]->update();
-                //uint8_t pin = data->touchpad->touchPins[i]->getPin();
-                Serial.printf("%u, ", reading);
-#else
-                data->touchpad->touchPins[i]->update();
-#endif
-
-                if (data->touchpad->touchPins[i]->contacted()) {
-                    if (data->touchpad->m_contactCb != nullptr) {
-                        (*data->touchpad->m_contactCb)(data->touchpad->touchPins[i]->getPin(), data->touchpad->m_contactArg);
-                    }
-                }
-                if (data->touchpad->touchPins[i]->released()) {
-                    if (data->touchpad->m_releaseCb != nullptr) {
-                        (*data->touchpad->m_releaseCb)(data->touchpad->touchPins[i]->getPin(), data->touchpad->m_releaseArg);
-                    }
-                }
-                if (data->touchpad->touchPins[i]->tapped()) {
-                    if (data->touchpad->m_tapCb != nullptr) {
-                        (*data->touchpad->m_tapCb)(data->touchpad->touchPins[i]->getPin(), data->touchpad->m_tapArg);
-                    }
-                }
-                if (data->touchpad->touchPins[i]->pressed()) {
-                    if (data->touchpad->m_pressCb != nullptr) {
-                        (*data->touchpad->m_pressCb)(data->touchpad->touchPins[i]->getPin(), data->touchpad->m_pressArg);
-                    }
-                }
-            }
-#if MM_TOUCHPAD_DEBUG
-            Serial.printf("\n");
-#endif
-
-            xSemaphoreGive(data->semaphore);
+        if (xSemaphoreTake(data->dataSemaphore, 1) == pdTRUE) {
+            touchpadTask_update(p);
+            xSemaphoreGive(data->dataSemaphore);
         }
 
         delay(10);
@@ -132,14 +150,14 @@ void TouchPad::touchpadTask(void* p)
 
 void TouchPad::end()
 {
-    if (xSemaphoreTake(taskData.semaphore, portMAX_DELAY) == pdTRUE) {
-        if (taskData.semaphore != nullptr) {
-            vSemaphoreDelete(taskData.semaphore);
-            taskData.semaphore = nullptr;
+    if (xSemaphoreTake(taskData.dataSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (taskData.dataSemaphore != nullptr) {
+            vSemaphoreDelete(taskData.dataSemaphore);
+            taskData.dataSemaphore = nullptr;
         }
-        if (taskData.taskHandle != nullptr) {
-            vTaskDelete(taskData.taskHandle);
-            taskData.taskHandle = nullptr;
+        if (taskHandle != nullptr) {
+            vTaskDelete(taskHandle);
+            taskHandle = nullptr;
         }
     } else {
         abort();

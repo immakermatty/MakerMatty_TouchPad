@@ -22,7 +22,7 @@ public:
     void attach(touch_pad_t pin, uint16_t tap_ms, uint16_t press_ms);
     void detach(touch_pad_t pin);
 
-    void begin(BaseType_t xCoreID = APP_CPU_NUM);
+    bool begin(BaseType_t xCoreID = APP_CPU_NUM, SemaphoreHandle_t* pHwSemaphore = nullptr);
     void end();
 
     typedef void (*TouchPadCallback)(const touch_pad_t pin, void* cbarg);
@@ -36,12 +36,14 @@ private:
     TouchPin** touchPins;
 
     struct TaskData {
-        TaskHandle_t taskHandle;
-        SemaphoreHandle_t semaphore;
-        TouchPad* touchpad;
+        TouchPad* self;
+        SemaphoreHandle_t dataSemaphore;
+        SemaphoreHandle_t* pHardwareSemaphore;
     };
 
     TaskData taskData;
+    TaskHandle_t taskHandle;
+    static void touchpadTask_update(void* p);
     static void touchpadTask(void* p);
 
     uint8_t touchPinsAttached;
