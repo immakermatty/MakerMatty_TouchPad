@@ -1,0 +1,22 @@
+{
+    "name": "MakerMatty_TouchPad",
+    "version": "1.0.0",
+    "description": "",
+    "keywords": "esp32",
+    "repository":
+    {
+      "type": "git",
+      "url": "https://github.com/immakermatty/MakerMatty_TouchPad.git"
+    },
+    "authors":
+    [
+      {
+        "name": "Matej Suchanek",
+        "email": "maker@matejsuchanek.cz",
+        "url": "maker.matejsuchanek.cz",
+        "maintainer": true
+      }
+    ],
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+  }
