@@ -24,7 +24,7 @@ void TouchPad::attach(touch_pad_t pin, uint16_t tap_ms = 50, uint16_t press_ms =
     if (!taskData.dataSemaphore || xSemaphoreTake(taskData.dataSemaphore, portMAX_DELAY)) {
 
         for (uint8_t i = 0; i < touchPinsAttached; i++) {
-            if (touchPins[i]->getPin() == pin) {
+            if (touchPins[i]->getPad() == pin) {
                 detach(pin);
                 break;
             }
@@ -42,7 +42,7 @@ void TouchPad::detach(touch_pad_t pin)
     if (!taskData.dataSemaphore || xSemaphoreTake(taskData.dataSemaphore, portMAX_DELAY)) {
 
         for (uint8_t i = 0; i < touchPinsAttached; i++) {
-            if (touchPins[i]->getPin() == pin) {
+            if (touchPins[i]->getPad() == pin) {
                 delete touchPins[i];
                 touchPins[i] = touchPins[touchPinsAttached - 1];
                 touchPinsAttached--;
@@ -113,22 +113,22 @@ void TouchPad::touchpadTask_update(void* p)
 
         if (data->self->touchPins[i]->contacted()) {
             if (data->self->m_contactCb != nullptr) {
-                (*data->self->m_contactCb)(data->self->touchPins[i]->getPin(), data->self->m_contactArg);
+                (*data->self->m_contactCb)(data->self->touchPins[i]->getPad(), data->self->m_contactArg);
             }
         }
         if (data->self->touchPins[i]->released()) {
             if (data->self->m_releaseCb != nullptr) {
-                (*data->self->m_releaseCb)(data->self->touchPins[i]->getPin(), data->self->m_releaseArg);
+                (*data->self->m_releaseCb)(data->self->touchPins[i]->getPad(), data->self->m_releaseArg);
             }
         }
         if (data->self->touchPins[i]->tapped()) {
             if (data->self->m_tapCb != nullptr) {
-                (*data->self->m_tapCb)(data->self->touchPins[i]->getPin(), data->self->m_tapArg);
+                (*data->self->m_tapCb)(data->self->touchPins[i]->getPad(), data->self->m_tapArg);
             }
         }
         if (data->self->touchPins[i]->pressed()) {
             if (data->self->m_pressCb != nullptr) {
-                (*data->self->m_pressCb)(data->self->touchPins[i]->getPin(), data->self->m_pressArg);
+                (*data->self->m_pressCb)(data->self->touchPins[i]->getPad(), data->self->m_pressArg);
             }
         }
     }
