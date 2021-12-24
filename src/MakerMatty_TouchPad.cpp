@@ -19,7 +19,7 @@ TouchPad::TouchPad(uint8_t max_count)
 {
 }
 
-void TouchPad::attach(touch_pad_t pin, uint16_t tap_ms = 50, uint16_t press_ms = 750)
+void TouchPad::attach(touch_pad_t pin, uint16_t tap_ms, uint16_t press_ms, uint8_t knock_count)
 {
     if (!taskData.dataSemaphore || xSemaphoreTake(taskData.dataSemaphore, portMAX_DELAY)) {
 
@@ -29,7 +29,7 @@ void TouchPad::attach(touch_pad_t pin, uint16_t tap_ms = 50, uint16_t press_ms =
                 break;
             }
         }
-        touchPins[touchPinsAttached++] = new TouchPin(pin, tap_ms, press_ms);
+        touchPins[touchPinsAttached++] = new TouchPin(pin, tap_ms, press_ms, knock_count);
 
         if (taskData.dataSemaphore) {
             xSemaphoreGive(taskData.dataSemaphore);

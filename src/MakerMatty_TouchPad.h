@@ -19,7 +19,7 @@ public:
     TouchPad(uint8_t max_count = TOUCH_PAD_MAX);
     ~TouchPad();
 
-    void attach(touch_pad_t pin, uint16_t tap_ms, uint16_t press_ms);
+    void attach(touch_pad_t pin, uint16_t tap_ms = 50, uint16_t press_ms = 750, uint8_t knock_count = 3);
     void detach(touch_pad_t pin);
 
     bool begin(BaseType_t xCoreID = APP_CPU_NUM, SemaphoreHandle_t* pHwSemaphore = nullptr);
